@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Elastic</title>
+  <script>
+  window.addEventListener('DOMContentLoaded', function() {
+    var TWOPI = Math.PI * 2;
+    function read(key) {
+      var value = localStorage.getItem(key);
+      return value && JSON.parse(value);
+    }
+    function write(key, value) {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+    function Vector(x, y) {
+      this.x = x;
+      this.y = y;
+    }
+    Vector.prototype.add = function(other) {
+      return new Vector(this.x + other.x, this.y + other.y);
+    }
+    Vector.prototype.subtract = function(other) {
+      return new Vector(this.x - other.x, this.y - other.y);
+    }
+    Vector.prototype.magnitude = function() {
+      return Math.sqrt(this.x * this.x + this.y * this.y);
+    }
+    Vector.prototype.normalize = function() {
+      var mag = this.magnitude();
+      return mag === 0 ? new Vector(0, 0) : this.multiply(1 / mag);
+    }
+    Vector.prototype.multiply = function(factor) {
+      return new Vector(this.x * factor, this.y * factor);
+    }
+    function Ball(x, y, radius, fixed) {
+      this.position = new Vector(x, y);
+      this.radius = radius;
+      this.fixed = fixed;
+      this.mass = TWOPI * radius;
+      this.edges = [];
+      this.velocity = new Vector(0, 0);
+    }
+    Ball.load = function(data) {
+      return new Ball(data[0], data[1], data[2], data[3]);
+    }
+    Ball.dump = function(ball) {
+      return [ball.position.x, ball.position.y, ball.radius, ball.fixed];
+    }
+    Ball.prototype.draw = function(context) {
+      context.beginPath();
+      context.arc(this.position.x, this.position.y, this.radius, 0, TWOPI);
+      context.fillStyle = this.isDragging ? 'lightblue' : 'blue';
+      context.fill();
+    }
+    Ball.prototype.update = function(elapsed) {
+      elapsed /= 10;
+      if(!this.fixed && !this.isDragging) {
+        var force = new Vector(0, 0);
+        for (var i = 0; i < this.edges.length; i++) {
+          force = force.add(this.edges[i].position.subtract(this.position));
+        }
+        force = force.add(new Vector(0, this.mass));
+        var acceleration = force.multiply(1 / this.mass);
+        this.velocity = this.velocity.add(acceleration.multiply(elapsed));
+        this.velocity = this.velocity.multiply(0.88);
+        this.position = this.position.add(this.velocity.multiply(elapsed));
+      }
+    }
+    Ball.prototype.contains = function(point) {
+      return this.position.subtract(point).magnitude() < this.radius;
+    }
+    function Edge(from, to) {
+      from.edges.push(to);
+      to.edges.push(from);
+      this.from = from;
+      this.to = to;
+    }
+    Edge.load = function(data) {
+      return new Edge(balls[data[0]], balls[data[1]]);
+    }
+    Edge.dump = function(edge) {
+      return [balls.indexOf(edge.from), balls.indexOf(edge.to)];
+    }
+    Edge.prototype.draw = function(context) {
+      context.beginPath();
+      context.moveTo(this.from.position.x, this.from.position.y);
+      context.lineTo(this.to.position.x, this.to.position.y);
+      var hue = 100 - this.magnitude() / 5;
+      context.strokeStyle = 'hsl(' + hue + ', 65%, 65%)';
+      context.lineWidth = 2;
+      context.stroke();
+    }
+    Edge.prototype.magnitude = function() {
+      return this.from.position.subtract(this.to.position).magnitude();
+    }
+    var canvas = document.getElementsByTagName('canvas')[0];
+    var context = canvas.getContext('2d');
+    function resize() {
+      var computedStyle = window.getComputedStyle(canvas);
+      var width = parseInt(computedStyle.getPropertyValue('width'));
+      var height = parseInt(computedStyle.getPropertyValue('height'));
+      var ratio = window.devicePixelRatio || 1;
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      context.scale(ratio, ratio);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+    var b = [
+      [112,78,15,true],
+      [327,435,100,false],
+      [219,683,15,true],
+      [652,74,15,true],
+      [552,714,25,false],
+      ];
+    var e = [
+      [0,1],
+      [1,2],
+      [1,3],
+      [4,3],
+      [4,0],
+    ];
+    write('edges', e);
+    write('balls', b.map(Ball.load).map(Ball.dump));
+    var balls = read('balls').map(Ball.load);
+    var edges = read('edges').map(Edge.load);
+    var lastTime = 0;
+    function render(time) {
+      var delta = time - lastTime;
+      lastTime = time;
+      requestAnimationFrame(render);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      for (var i = 0; i < edges.length; i++) {
+        edges[i].draw(context);
+      }
+      for (var i = 0; i < balls.length; i++) {
+        balls[i].update(delta);
+        balls[i].draw(context);
+      }
+    } 
+    requestAnimationFrame(render);
+    window.addEventListener('mousedown', dragStart);
+    function dragStart(event) {
+      var start = new Vector(event.pageX, event.pageY);
+      for (var i = 0; i < balls.length; i++) {
+        if(balls[i].contains(start)) {
+          balls[i].isDragging = true;
+          window.addEventListener('mousemove', drag);
+          function drag(event) {
+            balls[i].position.x = event.pageX;
+            balls[i].position.y = event.pageY;
+          }
+          window.addEventListener('mouseup', teardown);
+          function teardown() {
+            write('balls', balls.map(Ball.dump));
+            balls[i].isDragging = false;
+            window.removeEventListener('mousemove', drag);
+            window.removeEventListener('mousemove', teardown);
+          }
+          break;
+        }
+      }
+    }
+  });
+  </script>
+  <style>
+  body {
+    margin: 0;
+  }
+  canvas {
+    width: 100vw;
+    height: 100vh;
+  }
+  </style>
+</head>
+<body>
+<canvas></canvas>
+</body>
+</html>
